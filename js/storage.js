@@ -34,7 +34,7 @@ export const DEFAULT_SETTINGS = {
   maxWalk: 805,          // metres
   transferSlack: 120,    // seconds
   live: true,
-  mapStyle: 'voyager',
+  mapStyle: 'osm',
   allRoutes: false,
   hiddenRoutes: [],
 };

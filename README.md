@@ -18,7 +18,7 @@ Choose **Leave now** (uses live Metro Transit predictions), **Depart at**, or **
 ## Features
 
 - **All routes in and around campus**: the free U of M campus buses (120 East Bank Circulator, 121 Campus Connector, 122 University Ave Circulator, 123 4th St Circulator, 124 St. Paul Circulator, 125 Dinkytown Circulator), the METRO Green/Blue Lines and rapid bus lines, and every Metro Transit bus, so trips to downtown, the airport or Mall of America work too.
-- **Tap-to-plan map**, with draggable A/B pins, an "Use my location" button and area labels (East Bank, West Bank, Dinkytown, Stadium Village, St. Paul campus…).
+- **Tap-to-plan map** with street names, labelled dorms and campus buildings (tap one to start or end there), draggable A/B pins, a "Use my location" button and area labels (East Bank, West Bank, Dinkytown, Stadium Village, St. Paul campus…). Switch between street and satellite maps in Settings.
 - **Several options**: the next few departures, marked *Fastest*, *Fewest transfers* or *Least walking*, plus a walk-the-whole-way option when that's quicker.
 - **Live data**: real-time arrival predictions, live bus and train positions on the map, and service alerts (detours, stop closures, trains replaced by buses).
 - **Stop departure boards**: zoom in and tap any stop to see its next departures.
@@ -48,7 +48,7 @@ Everything runs in the browser, so there's no server to run or pay for.
 | Walking distances and directions | [FOSSGIS OSRM](https://routing.openstreetmap.de/) (OpenStreetMap) | Falls back to straight-line estimates if unavailable |
 | Campus buildings | OpenStreetMap via Overpass | Built into `data/places.json` |
 | Address search | OpenStreetMap Nominatim | |
-| Map | Leaflet + CARTO / OpenStreetMap tiles | |
+| Map | Leaflet + OpenStreetMap tiles (Esri street, satellite and gray maps in Settings) | No API keys needed |
 
 The workflow in `.github/workflows/deploy.yml`:
 
@@ -60,6 +60,9 @@ The workflow in `.github/workflows/deploy.yml`:
 
 It runs on every push, daily at 5:23 AM Central, and on demand from the **Actions** tab (*Build schedules & deploy site* → *Run workflow*).
 If a new feed ever fails the tests, the old site stays up.
+
+After each deploy, `.github/workflows/site-check.yml` opens the live site in a headless phone browser and checks that map tiles,
+live predictions, walking directions, stop departure boards and search all work. Its screenshots are attached to the run.
 
 ## Project layout
 
@@ -74,7 +77,7 @@ js/render.js     HTML for cards, step-by-step directions, stop boards
 js/walking.js    OSRM walking distances and turn-by-turn steps
 js/search.js     places, stops, saved places and address search
 tools/           data builders (Python standard library only)
-tests/           planner and real-time tests (Node 22)
+tests/           planner, real-time and live-site tests (Node 22)
 vendor/leaflet/  Leaflet 1.9.4
 ```
 
@@ -104,7 +107,7 @@ The site is published from the **`gh-pages`** branch. If the link above ever sho
 
 ## Credits and disclaimer
 
-Schedule and real-time data from Metro Transit / Metropolitan Council. Map data © OpenStreetMap contributors; map tiles © CARTO.
+Schedule and real-time data from Metro Transit / Metropolitan Council. Map data © OpenStreetMap contributors; optional Esri base maps © Esri and its partners.
 Walking routes by FOSSGIS OSRM. [Leaflet](https://leafletjs.com/) is BSD-2-Clause licensed.
 
 This is an independent project and isn't affiliated with Metro Transit or the University of Minnesota. Buses can run early or late,

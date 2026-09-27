@@ -1,0 +1,52 @@
+name: Check live site
+
+# After each deploy, open the published app in a phone-sized browser on the real
+# network and check map tiles, live Metro Transit data, walking directions and
+# search. Screenshots are attached to the run as the "site-check" artifact.
+on:
+  workflow_run:
+    workflows: ['Build schedules & deploy site']
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      print_screenshots:
+        description: Also print small screenshots into the log
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Install headless browser
+        run: |
+          npm i --no-save --no-package-lock playwright@1.56.1
+          npx playwright install --with-deps chromium
+
+      - name: Check the published site
+        env:
+          EXPECT_APP_JS: js/app.js
+          PRINT_SCREENSHOTS: ${{ inputs.print_screenshots && '1' || '' }}
+        run: node tests/site_check.mjs "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/" site-check
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: site-check
+          path: site-check/

@@ -24,13 +24,27 @@ const AREA_LABELS = [
   ['Prospect Park', 44.9690, -93.2130], ['Como', 44.9960, -93.2180], ['Downtown', 44.9770, -93.2690],
   ['St. Paul Campus', 44.9860, -93.1845], ['Nicollet Island', 44.9870, -93.2640],
 ];
+// Base maps that need no API key. Each entry is one or more stacked tile layers.
+const OSM_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+const ESRI = 'https://server.arcgisonline.com/ArcGIS/rest/services';
+const ESRI_ATTR = 'Tiles &copy; <a href="https://www.esri.com/">Esri</a>, HERE, Garmin, ' + OSM_ATTR;
 const TILES = {
-  voyager: ['https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', 'abcd'],
-  light: ['https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', 'abcd'],
-  dark: ['https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', 'abcd'],
-  osm: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png', ''],
+  osm: [['https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxNativeZoom: 19, attribution: OSM_ATTR }]],
+  esri: [[`${ESRI}/World_Street_Map/MapServer/tile/{z}/{y}/{x}`, { maxNativeZoom: 19, attribution: ESRI_ATTR }]],
+  light: [
+    [`${ESRI}/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}`, { maxNativeZoom: 16, attribution: ESRI_ATTR }],
+    [`${ESRI}/Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}`, { maxNativeZoom: 16 }],
+  ],
+  dark: [
+    [`${ESRI}/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}`, { maxNativeZoom: 16, attribution: ESRI_ATTR }],
+    [`${ESRI}/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}`, { maxNativeZoom: 16 }],
+  ],
+  satellite: [
+    [`${ESRI}/World_Imagery/MapServer/tile/{z}/{y}/{x}`, { maxNativeZoom: 19, attribution: 'Imagery &copy; Esri, Maxar, Earthstar Geographics' }],
+    [`${ESRI}/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}`, { maxNativeZoom: 19 }],
+    [`${ESRI}/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}`, { maxNativeZoom: 19 }],
+  ],
 };
-const ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
 
 const state = {
   net: null, planner: null, search: null, routeById: new Map(),
@@ -39,7 +53,7 @@ const state = {
   active: null, focusRoute: null, geocodeResults: null,
 };
 
-let map, tileLayer, routeLayer, stopLayer, itinLayer, vehLayer, labelLayer, focusLayer;
+let map, tileLayer, routeLayer, stopLayer, itinLayer, vehLayer, labelLayer, focusLayer, placeLayer;
 let routeRenderer, stopRenderer;
 const routePolylines = new Map();
 const markers = { from: null, to: null, me: null };
@@ -69,6 +83,7 @@ async function boot() {
   }
   $('#boot').hidden = true;
   drawRoutes();
+  buildPlaceLabels();
   buildRouteList();
   renderAbout();
   renderSavedList();
@@ -101,9 +116,9 @@ function toast(msg, ms = 3000) {
 // -------------------------------------------------------------------- map
 
 function initMap() {
-  map = L.map('map', { zoomControl: false, preferCanvas: true, tapTolerance: 20, zoomSnap: 0.5 })
+  map = L.map('map', { zoomControl: false, preferCanvas: true, tapTolerance: 20, zoomSnap: 0.5, maxZoom: 20 })
     .setView(CAMPUS_CENTER, 15);
-  setTiles(settings.mapStyle);
+  settings.mapStyle = setTiles(settings.mapStyle);
   if (isDesktop()) L.control.zoom({ position: 'bottomright' }).addTo(map);
   routeRenderer = L.canvas({ padding: 0.5 });
   stopRenderer = L.canvas({ padding: 0.5, tolerance: 10 });
@@ -119,7 +134,7 @@ function initMap() {
   }
   const updateLabels = () => {
     const z = map.getZoom();
-    if (z >= 14 && z <= 16.5) labelLayer.addTo(map); else labelLayer.remove();
+    if (z >= 14 && z < 16) labelLayer.addTo(map); else labelLayer.remove();
   };
   map.on('zoomend', updateLabels);
   updateLabels();
@@ -131,13 +146,11 @@ function initMap() {
 }
 
 function setTiles(style) {
-  const [url, subs] = TILES[style] || TILES.voyager;
+  if (!TILES[style]) style = 'osm'; // also migrates the retired CARTO styles
   if (tileLayer) tileLayer.remove();
-  tileLayer = L.tileLayer(url, {
-    subdomains: subs || 'abc', maxZoom: 19, detectRetina: false,
-    attribution: style === 'osm' ? ATTR : `${ATTR} &copy; <a href="https://carto.com/attributions">CARTO</a>`,
-  }).addTo(map);
+  tileLayer = L.layerGroup(TILES[style].map(([url, opts]) => L.tileLayer(url, { maxZoom: 20, ...opts }))).addTo(map);
   document.documentElement.dataset.mapStyle = style;
+  return style;
 }
 
 function fitVisible(bounds, maxZoom = 17) {
@@ -147,6 +160,33 @@ function fitVisible(bounds, maxZoom = 17) {
     ? { paddingTopLeft: [450, 80], paddingBottomRight: [40, 40] }
     : { paddingTopLeft: [24, 70], paddingBottomRight: [24, sheetPx(sheetState) + 16] };
   map.fitBounds(bounds, { ...opts, maxZoom });
+}
+
+// Dorms and main campus buildings, labelled on the map when zoomed in (any base map).
+const CAMPUS_CATEGORIES = new Set(['Residence hall', 'Student life', 'Library', 'Classes', 'Recreation', 'Athletics', 'Arts', 'Health', 'Campus']);
+
+function buildPlaceLabels() {
+  placeLayer = L.layerGroup();
+  for (const p of state.search.popular()) {
+    if (!CAMPUS_CATEGORIES.has(p.category)) continue;
+    const icon = L.divIcon({
+      className: `place-label${p.category === 'Residence hall' ? ' dorm' : ''}`, iconSize: null, iconAnchor: [7, 7],
+      html: `<span class="pd"></span><span class="pt">${esc(p.name)}</span>`,
+    });
+    L.marker([p.lat, p.lon], { icon, keyboard: false, zIndexOffset: -500, title: p.name })
+      .on('click', (e) => { L.DomEvent.stop(e); onPlaceTap({ lat: p.lat, lon: p.lon, name: p.name }, e); })
+      .addTo(placeLayer);
+  }
+  const update = () => { if (map.getZoom() >= 16) placeLayer.addTo(map); else placeLayer.remove(); };
+  map.on('zoomend', update);
+  update();
+}
+
+function onPlaceTap(pt, e) {
+  hideMapMenu();
+  if (!state.from) return setEndpoint('from', pt);
+  if (!state.to) return setEndpoint('to', pt);
+  showMapMenu(e.containerPoint || map.latLngToContainerPoint([pt.lat, pt.lon]), pt);
 }
 
 function routeVisible(r) {
@@ -224,7 +264,7 @@ function showMapMenu(cp, pt) {
   const rect = $('#map').getBoundingClientRect();
   menu.style.left = `${Math.min(Math.max(cp.x + rect.left, 110), innerWidth - 110)}px`;
   menu.style.top = `${Math.max(cp.y + rect.top, 150)}px`;
-  menu.innerHTML = `<div class="mm-title">Use this spot as…</div>
+  menu.innerHTML = `<div class="mm-title">${pt.name ? esc(pt.name) : 'Use this spot as…'}</div>
     <button type="button" data-act="from"><span class="dot a">A</span>Start here</button>
     <button type="button" data-act="to"><span class="dot b">B</span>Go here</button>`;
   menu.hidden = false;
@@ -232,7 +272,7 @@ function showMapMenu(cp, pt) {
     const act = ev.target.closest('button')?.dataset.act;
     if (!act) return;
     hideMapMenu();
-    setEndpoint(act, namedPoint(pt));
+    setEndpoint(act, pt.name ? { ...pt } : namedPoint(pt));
   };
 }
 
