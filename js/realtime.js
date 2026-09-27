@@ -279,15 +279,21 @@ export function applyTripUpdates(net, ct, feed) {
 
 // ------------------------------------------------------------------ fetching
 
-async function fetchBuffer(url, timeoutMs = 8000) {
-  const ctl = new AbortController();
-  const timer = setTimeout(() => ctl.abort(), timeoutMs);
-  try {
-    const res = await fetch(url, { signal: ctl.signal, cache: 'no-store' });
-    if (!res.ok) throw new Error(`${res.status} ${url}`);
-    return await res.arrayBuffer();
-  } finally {
-    clearTimeout(timer);
+async function fetchBuffer(url, timeoutMs = 8000, attempts = 3) {
+  // The .pb files are rewritten every few seconds and can briefly 404; retry.
+  for (let i = 1; ; i++) {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), timeoutMs);
+    try {
+      const res = await fetch(url, { signal: ctl.signal, cache: 'no-cache' });
+      if (!res.ok) throw new Error(`${res.status} ${url}`);
+      return await res.arrayBuffer();
+    } catch (err) {
+      if (i >= attempts) throw err;
+      await new Promise((r) => setTimeout(r, 700 * i));
+    } finally {
+      clearTimeout(timer);
+    }
   }
 }
 

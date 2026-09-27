@@ -177,7 +177,13 @@ function buildPlaceLabels() {
       .on('click', (e) => { L.DomEvent.stop(e); onPlaceTap({ lat: p.lat, lon: p.lon, name: p.name }, e); })
       .addTo(placeLayer);
   }
-  const update = () => { if (map.getZoom() >= 16) placeLayer.addTo(map); else placeLayer.remove(); };
+  const update = () => {
+    const z = map.getZoom();
+    if (z < 16) { placeLayer.remove(); return; }
+    placeLayer.addTo(map);
+    // from z17 the base map labels buildings itself; keep only the dorm labels
+    placeLayer.eachLayer((m) => m.getElement()?.classList.toggle('hidden-z', z >= 17 && !m.options.icon.options.className.includes('dorm')));
+  };
   map.on('zoomend', update);
   update();
 }
@@ -310,6 +316,7 @@ function setEndpoint(which, pt, { plan: doPlan = true, pan = false } = {}) {
   } else {
     markers[which].setLatLng([pt.lat, pt.lon]);
   }
+  prefetchWalks(pt);
   if (pt.pending) resolveName(which, pt);
   if (pan) map.panTo([pt.lat, pt.lon]);
   updateSaveButtons();
@@ -547,15 +554,25 @@ async function liveTimetable(date) {
   return ct;
 }
 
-async function walkDistances(from, to) {
+function walkCandidates(pt) {
   const net = state.net;
-  const cands = (pt) => {
-    let list = net.stopsNear(pt.lat, pt.lon, settings.maxWalk);
-    if (list.length < 3) list = net.nearestStops(pt.lat, pt.lon, 3, 3000);
-    return list.slice(0, 80).map(({ stop }) => ({ stop, lat: net.stopLat[stop], lon: net.stopLon[stop] }));
-  };
-  const [a, b] = await Promise.all([walkTable(from, cands(from), to), walkTable(to, cands(to))]);
-  return { from: a.stops, to: b.stops, direct: a.other ?? undefined };
+  let list = net.stopsNear(pt.lat, pt.lon, settings.maxWalk);
+  if (list.length < 3) list = net.nearestStops(pt.lat, pt.lon, 3, 3000);
+  return list.slice(0, 80).map(({ stop }) => ({ stop, lat: net.stopLat[stop], lon: net.stopLon[stop] }));
+}
+
+/** Start fetching real walking distances for a point before the trip is planned. */
+function prefetchWalks(pt) {
+  if (state.net && pt) walkTable(pt, walkCandidates(pt)).catch(() => {});
+}
+
+async function walkDistances(from, to) {
+  const [a, b, direct] = await Promise.all([
+    walkTable(from, walkCandidates(from)),
+    walkTable(to, walkCandidates(to)),
+    walkRoute(from, to).then((r) => r.distance).catch(() => undefined),
+  ]);
+  return { from: a, to: b, direct };
 }
 
 const withTimeout = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))]);
@@ -580,7 +597,7 @@ async function plan({ quiet = false } = {}) {
   const from = { ...state.from }, to = { ...state.to };
   const [rt, walks] = await Promise.all([
     isNow && settings.live ? liveTimetable(date).catch((e) => { console.warn('live data', e); return null; }) : null,
-    withTimeout(walkDistances(from, to), 4000).catch((e) => { console.warn('walking router', e); return null; }),
+    withTimeout(walkDistances(from, to), 5000).catch((e) => { console.warn('walking router', e); return null; }),
   ]);
   if (seq !== state.seq) return;
   let res;

@@ -23,27 +23,26 @@ async function getJson(url, timeoutMs) {
 const c = (p) => `${p.lon.toFixed(6)},${p.lat.toFixed(6)}`;
 
 /**
- * Walking metres from `point` to each stop (and optionally to `other`).
- * @returns {Promise<{stops: Map<number, number>, other: number|null}>}
+ * Walking metres from `point` to each stop (Infinity when the router finds no path).
+ * Results are cached, so calling this as soon as a point is chosen warms it up.
+ * @returns {Promise<Map<number, number>>}
  */
-export async function walkTable(point, stops, other = null, timeoutMs = 3500) {
+export function walkTable(point, stops, timeoutMs = 6000) {
   const list = stops.slice(0, 90);
-  const key = `t:${c(point)}:${other ? c(other) : ''}:${list.map((s) => s.stop).join(',')}`;
+  const key = `t:${c(point)}:${list.map((s) => s.stop).join(',')}`;
   if (cache.has(key)) return cache.get(key);
-  const coords = [c(point), ...(other ? [c(other)] : []), ...list.map(c)];
+  const coords = [c(point), ...list.map(c)];
   const url = `${OSRM}/table/v1/foot/${coords.join(';')}?sources=0&annotations=distance`;
   const promise = getJson(url, timeoutMs).then((data) => {
     const row = data.distances[0];
     const out = new Map();
-    const off = other ? 2 : 1;
     // the router snaps each point to the nearest path; add those snap distances
-    const snap = (i) => (data.destinations?.[i]?.distance || 0);
     const src = data.sources?.[0]?.distance || 0;
     list.forEach((s, i) => {
-      const d = row[i + off];
-      out.set(s.stop, d == null ? Infinity : d + snap(i + off) + src);
+      const d = row[i + 1];
+      out.set(s.stop, d == null ? Infinity : d + (data.destinations?.[i + 1]?.distance || 0) + src);
     });
-    return { stops: out, other: other && row[1] != null ? row[1] + snap(1) + src : null };
+    return out;
   });
   cache.set(key, promise);
   promise.catch(() => cache.delete(key));
@@ -72,7 +71,7 @@ function instruction(s) {
 }
 
 /** Walking route geometry and steps between two points. */
-export async function walkRoute(a, b, timeoutMs = 5000) {
+export async function walkRoute(a, b, timeoutMs = 6000) {
   const key = `r:${c(a)};${c(b)}`;
   if (cache.has(key)) return cache.get(key);
   const url = `${OSRM}/route/v1/foot/${c(a)};${c(b)}?overview=full&geometries=geojson&steps=true`;

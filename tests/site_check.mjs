@@ -70,6 +70,14 @@ summary.checks.options = await page.locator('.card.itin').count();
 if (!summary.checks.options) problem('no trip options for Comstock Hall -> Target Field');
 if (!/live times/.test(status)) problem(`live predictions not used: "${status.trim()}"`);
 await shot('results');
+// How the real-time feed responds to browser requests (diagnoses CDN/cache quirks)
+summary.checks.realtimeFetch = await page.evaluate(async () => {
+  const out = {};
+  for (const mode of ['no-store', 'no-cache', 'default']) {
+    try { out[mode] = (await fetch('https://svc.metrotransit.org/mtgtfs/tripupdates.pb', { cache: mode })).status; } catch (e) { out[mode] = String(e); }
+  }
+  return out;
+});
 
 // 2. Step-by-step details + walking directions
 if (summary.checks.options) {

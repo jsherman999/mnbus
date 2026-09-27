@@ -294,6 +294,7 @@ summary { cursor: pointer; font-size: 14px; color: var(--muted); padding: 4px 0;
 .place-label { display: flex; align-items: center; gap: 4px; white-space: nowrap; width: auto !important; height: auto !important; cursor: pointer; }
 .place-label .pd { flex: none; width: 10px; height: 10px; border-radius: 50%; background: #7a0019; border: 2px solid #fff; box-shadow: 0 0 2px rgba(0, 0, 0, .6); }
 .place-label.dorm .pd { background: #b8860b; }
+.place-label.hidden-z { display: none !important; }
 .place-label .pt { font-size: 12px; font-weight: 700; color: #4d0010; text-shadow: 0 0 3px #fff, 0 0 3px #fff, 0 0 2px #fff, 0 0 1px #fff; }
 .leaflet-bottom.leaflet-right { bottom: var(--sheet-h); transition: bottom .25s ease; }
 .leaflet-control-attribution { font-size: 10px; }

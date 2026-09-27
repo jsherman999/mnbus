@@ -77,16 +77,16 @@ export class PlaceSearch {
 
   async geocode(query) {
     const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=6&countrycodes=us&bounded=1` +
-      `&viewbox=${VIEWBOX}&q=${encodeURIComponent(query)}`;
+      `&addressdetails=1&viewbox=${VIEWBOX}&q=${encodeURIComponent(query)}`;
     const res = await fetch(url, { headers: { Accept: 'application/json' } });
     if (!res.ok) throw new Error(`Search failed (${res.status})`);
     const data = await res.json();
     return data.map((d) => {
-      const parts = d.display_name.split(', ');
-      return {
-        kind: 'geocode', name: d.name || parts[0], sub: parts.slice(d.name ? 1 : 1, 4).join(', '),
-        lat: +d.lat, lon: +d.lon,
-      };
+      const a = d.address || {};
+      const street = [a.house_number, a.road].filter(Boolean).join(' ');
+      const name = d.name || street || d.display_name.split(', ')[0];
+      const area = [d.name ? street : '', a.neighbourhood || a.suburb, a.city || a.town || a.village].filter(Boolean);
+      return { kind: 'geocode', name, sub: [...new Set(area)].join(', '), lat: +d.lat, lon: +d.lon };
     });
   }
 
