@@ -124,6 +124,7 @@ function initMap() {
   map.on('zoomend', updateLabels);
   updateLabels();
   map.on('click', onMapClick);
+  map.on('popupclose', () => { state.popupClosedAt = Date.now(); });
   map.on('movestart', hideMapMenu);
   // nudge the campus into the part of the screen the sheet doesn't cover
   if (!isDesktop()) map.panBy([0, Math.round(innerHeight * 0.18)], { animate: false });
@@ -203,8 +204,10 @@ function refreshStops() {
 // ----------------------------------------------------------- map clicking
 
 function onMapClick(e) {
+  // a tap that only dismisses a popup or the A/B menu shouldn't also drop a pin
+  const menuWasOpen = !$('#map-menu').hidden;
   hideMapMenu();
-  if (!state.net) return;
+  if (!state.net || menuWasOpen || Date.now() - (state.popupClosedAt || 0) < 400) return;
   const pt = { lat: +e.latlng.lat.toFixed(6), lon: +e.latlng.lng.toFixed(6) };
   if (!state.from) return setEndpoint('from', namedPoint(pt));
   if (!state.to) return setEndpoint('to', namedPoint(pt));
