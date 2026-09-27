@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Gopher Bus Planner</title>
+  <meta name="description" content="Plan bus and light-rail trips around the University of Minnesota Twin Cities campus with live Metro Transit times.">
+  <meta name="theme-color" content="#7a0019">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Gopher Bus">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="img/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="img/icon-192.png">
+  <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <div id="map" role="application" aria-label="Map. Tap to choose where you start and where you're going."></div>
+
+  <header class="topbar">
+    <div class="brand"><img src="img/icon.svg" alt="" width="28" height="28"><span>Gopher Bus</span></div>
+    <div class="top-actions">
+      <button id="btn-routes" class="pill" type="button" aria-label="Bus routes"><span class="ico" data-icon="routes"></span><span class="lbl">Routes</span></button>
+      <button id="btn-settings" class="pill icon-only" type="button" aria-label="Settings and about"><span class="ico" data-icon="gear"></span></button>
+    </div>
+  </header>
+
+  <section id="sheet" class="sheet" data-state="half" aria-label="Trip planner">
+    <div class="sheet-handle" id="sheet-handle" role="button" tabindex="0" aria-label="Resize panel"><span></span></div>
+    <div class="sheet-scroll" id="sheet-scroll">
+      <form id="trip-form" class="trip-form" autocomplete="off" onsubmit="return false">
+        <div class="endpoints">
+          <div class="ep-line" aria-hidden="true"></div>
+          <label class="endpoint">
+            <span class="dot a" aria-hidden="true">A</span>
+            <input id="from-input" type="search" enterkeyhint="search" placeholder="Start: tap the map or search" aria-label="Starting point">
+            <button id="from-save" class="icon-btn mini save" type="button" aria-label="Save start place" hidden><span class="ico" data-icon="star"></span></button>
+          </label>
+          <label class="endpoint">
+            <span class="dot b" aria-hidden="true">B</span>
+            <input id="to-input" type="search" enterkeyhint="search" placeholder="Destination: tap the map or search" aria-label="Destination">
+            <button id="to-save" class="icon-btn mini save" type="button" aria-label="Save destination" hidden><span class="ico" data-icon="star"></span></button>
+          </label>
+          <button id="swap" class="icon-btn swap" type="button" aria-label="Swap start and destination"><span class="ico" data-icon="swap"></span></button>
+        </div>
+        <div class="when">
+          <div class="seg" role="radiogroup" aria-label="When">
+            <button type="button" role="radio" data-mode="now" aria-checked="true">Leave now</button>
+            <button type="button" role="radio" data-mode="depart" aria-checked="false">Depart at</button>
+            <button type="button" role="radio" data-mode="arrive" aria-checked="false">Arrive by</button>
+          </div>
+          <div class="when-inputs" id="when-inputs" hidden>
+            <input id="when-date" type="date" aria-label="Date">
+            <input id="when-time" type="time" aria-label="Time" step="60">
+          </div>
+        </div>
+      </form>
+      <div id="suggest" class="suggest" hidden></div>
+      <div id="results" class="results" aria-live="polite"></div>
+    </div>
+  </section>
+
+  <button id="btn-locate" class="fab" type="button" aria-label="Show my location"><span class="ico" data-icon="locate"></span></button>
+
+  <section id="routes-panel" class="drawer" hidden aria-label="Bus routes">
+    <div class="drawer-head">
+      <h2>Routes</h2>
+      <button class="icon-btn close" type="button" data-close aria-label="Close"><span class="ico" data-icon="close"></span></button>
+    </div>
+    <div class="drawer-tools">
+      <input id="route-filter" type="search" placeholder="Filter routes (e.g. 121, Green, Como)" aria-label="Filter routes">
+      <label class="switch"><input id="all-routes" type="checkbox"> <span>Show every Metro Transit route (not just U of M area)</span></label>
+      <label class="switch"><input id="live-vehicles" type="checkbox"> <span>Show live bus and train locations</span></label>
+      <div class="row-btns"><button id="routes-show-all" class="btn small" type="button">Show all</button><button id="routes-hide-all" class="btn small" type="button">Hide all</button></div>
+    </div>
+    <div id="route-list" class="route-list"></div>
+  </section>
+
+  <section id="settings-panel" class="drawer" hidden aria-label="Settings">
+    <div class="drawer-head">
+      <h2>Settings</h2>
+      <button class="icon-btn close" type="button" data-close aria-label="Close"><span class="ico" data-icon="close"></span></button>
+    </div>
+    <div class="drawer-body">
+      <label class="field">Walking speed
+        <select id="set-speed">
+          <option value="1.0">Relaxed (2.2 mph)</option>
+          <option value="1.25">Normal (2.8 mph)</option>
+          <option value="1.5">Brisk (3.4 mph)</option>
+        </select>
+      </label>
+      <label class="field">Farthest I'll walk to a stop
+        <select id="set-walk">
+          <option value="400">¼ mile</option>
+          <option value="805">½ mile</option>
+          <option value="1200">¾ mile</option>
+          <option value="1610">1 mile</option>
+        </select>
+      </label>
+      <label class="field">Time to make a transfer
+        <select id="set-transfer">
+          <option value="60">1 minute</option>
+          <option value="120">2 minutes</option>
+          <option value="180">3 minutes</option>
+          <option value="300">5 minutes</option>
+        </select>
+      </label>
+      <label class="switch"><input id="set-live" type="checkbox"> <span>Use live bus predictions for "Leave now"</span></label>
+      <label class="field">Map style
+        <select id="set-map">
+          <option value="voyager">Streets</option>
+          <option value="light">Light</option>
+          <option value="dark">Dark</option>
+          <option value="osm">OpenStreetMap</option>
+        </select>
+      </label>
+      <div id="saved-list"></div>
+      <div class="about" id="about"></div>
+    </div>
+  </section>
+
+  <div id="map-menu" class="map-menu" hidden></div>
+  <div id="toast" class="toast" role="status" hidden></div>
+  <div id="boot" class="boot"><div class="spinner"></div><p>Loading Metro Transit schedules…</p></div>
+
+  <script src="vendor/leaflet/leaflet.js"></script>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

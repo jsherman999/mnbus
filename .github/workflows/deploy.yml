@@ -1,0 +1,75 @@
+name: Build schedules & deploy site
+
+# Rebuilds the Metro Transit schedule data and publishes the app to the
+# gh-pages branch (served by GitHub Pages). Runs on every push, every morning
+# (Metro Transit updates its GTFS feed regularly), and on demand.
+on:
+  push:
+    branches: [main, 'claude/**']
+  schedule:
+    - cron: '23 10 * * *'   # 5:23 AM Central (CDT) every day
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: deploy-pages
+  cancel-in-progress: false
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Unit tests (synthetic feed)
+        run: |
+          python3 tests/make_fixture.py "$RUNNER_TEMP/fixture"
+          python3 tools/build_data.py --gtfs "$RUNNER_TEMP/fixture" --out "$RUNNER_TEMP/fixture-data"
+          node tests/test_planner.mjs fixture "$RUNNER_TEMP/fixture-data"
+          node tests/test_realtime.mjs
+
+      - name: Assemble site
+        run: tools/assemble_site.sh _site
+
+      - name: Build schedule data from Metro Transit GTFS
+        run: |
+          python3 tools/build_data.py --download --gtfs "$RUNNER_TEMP/gtfs.zip" --out _site/data
+          for f in _site/data/*.json; do echo "$f: $(wc -c < "$f") bytes, gzip $(gzip -9 -c "$f" | wc -c) bytes"; done
+
+      - name: Build campus places (OpenStreetMap)
+        run: |
+          if ! python3 tools/build_places.py --out _site/data; then
+            echo "places build failed"
+          fi
+          if ! grep -q OpenStreetMap _site/data/places.json 2>/dev/null; then
+            echo "Keeping the previously published places.json"
+            curl -fsSL "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/gh-pages/data/places.json" -o _site/data/places.prev.json \
+              && grep -q OpenStreetMap _site/data/places.prev.json && mv _site/data/places.prev.json _site/data/places.json || true
+            rm -f _site/data/places.prev.json
+          fi
+
+      - name: Smoke-test the planner on real data
+        run: node tests/test_planner.mjs smoke _site/data
+
+      - name: Check live Metro Transit feeds (informational)
+        continue-on-error: true
+        run: node tests/test_realtime.mjs live _site/data
+
+      - name: Publish to gh-pages
+        # pushes to feature branches only build and test; the default branch (and main) publish
+        if: github.event_name != 'push' || github.ref_name == github.event.repository.default_branch || github.ref_name == 'main'
+        run: |
+          cd _site
+          git init -q -b gh-pages
+          git config user.name "github-actions[bot]"
+          git config user.email "41898099+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Deploy ${GITHUB_SHA::7} with Metro Transit schedules ($(date -u +%Y-%m-%d))"
+          git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${GITHUB_REPOSITORY}.git" gh-pages
