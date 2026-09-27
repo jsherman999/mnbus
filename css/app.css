@@ -319,3 +319,13 @@ summary { cursor: pointer; font-size: 14px; color: var(--muted); padding: 4px 0;
   .drawer { left: auto; width: 400px; top: 64px; bottom: 12px; right: 12px; border-radius: 16px; box-shadow: var(--shadow); padding-top: 0; }
   .topbar { left: 12px; right: 12px; }
 }
+
+/* system dark mode: same accent tweaks as an explicit dark theme */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .fab { color: var(--gold); }
+  :root:not([data-theme="light"]) .day { color: var(--gold); }
+  :root:not([data-theme="light"]) .link, :root:not([data-theme="light"]) .about a { color: #8ab4f8; }
+  :root:not([data-theme="light"]) .warn-box { background: #3b1d1a; color: #ffdad6; }
+  :root:not([data-theme="light"]) .alert { background: #3a2a0a; color: #ffd8a8; }
+  :root:not([data-theme="light"]) .sug.action .sico { background: #1e2a3d; color: #8ab4f8; }
+}
