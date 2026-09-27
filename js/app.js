@@ -558,7 +558,7 @@ function walkCandidates(pt) {
   const net = state.net;
   let list = net.stopsNear(pt.lat, pt.lon, settings.maxWalk);
   if (list.length < 3) list = net.nearestStops(pt.lat, pt.lon, 3, 3000);
-  return list.slice(0, 80).map(({ stop }) => ({ stop, lat: net.stopLat[stop], lon: net.stopLon[stop] }));
+  return list.slice(0, 50).map(({ stop }) => ({ stop, lat: net.stopLat[stop], lon: net.stopLon[stop] }));
 }
 
 /** Start fetching real walking distances for a point before the trip is planned. */
