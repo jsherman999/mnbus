@@ -3,15 +3,31 @@
 
 import { haversine, decodePolyline, addDays, weekday, DAY } from './util.js';
 
-// Distinct colours for ordinary bus routes (official colours are mostly one purple).
+// One colour per route, used for the map line, the badge and the step timeline.
+// Official colours for METRO lines; ordinary buses (officially all one purple)
+// get distinct colours so they can be told apart on the map.
 const BUS_PALETTE = [
-  '#1f77b4', '#d62728', '#2ca02c', '#9467bd', '#ff7f0e', '#17becf', '#8c564b', '#e377c2',
-  '#bcbd22', '#3b4cc0', '#b40426', '#006d5b', '#6a3d9a', '#c26a00', '#0b7285', '#a61e4d',
+  '#1f5fbf', '#c62828', '#2e7d32', '#6a1b9a', '#d84315', '#00838f', '#5d4037', '#ad1457',
+  '#827717', '#283593', '#00695c', '#4527a0', '#bf360c', '#0277bd', '#880e4f', '#558b2f',
 ];
 const OFFICIAL = {
-  901: '#0053A0', 902: '#008144', 903: '#E71324', 904: '#F68B1F', 905: '#E0A800', 992: '#008144',
+  901: '#0053A0', 902: '#008144', 903: '#E71324', 904: '#F68B1F', 905: '#E0A800', 992: '#008144', 906: '#0053A0',
   921: '#5A5B5A', 922: '#5A5B5A', 923: '#5A5B5A', 924: '#5A5B5A', 925: '#5A5B5A',
+  120: '#7A0019', 121: '#B5121B', 122: '#C2410C', 123: '#9D174D', 124: '#5B21B6', 125: '#A16207',
 };
+
+function hashColor(id) {
+  let h = 7;
+  for (const ch of String(id)) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return BUS_PALETTE[h % BUS_PALETTE.length];
+}
+
+function textOn(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  const lin = (c) => { c /= 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
+  const L = 0.2126 * lin(n >> 16) + 0.7152 * lin((n >> 8) & 255) + 0.0722 * lin(n & 255);
+  return L > 0.4 ? '#000000' : '#FFFFFF';
+}
 
 export const WALK_DETOUR = 1.25; // straight-line to walking-path distance factor
 
@@ -31,16 +47,11 @@ export class Network {
     this.stopIndex = new Map(s.id.map((id, i) => [String(id), i]));
 
     // ---- routes
-    let paletteIdx = 0;
     this.routes = net.routes.map((r, i) => {
       const umnRoute = r.agency.startsWith('University of Minnesota');
-      let color = OFFICIAL[r.id];
-      if (!color) color = umnRoute ? null : BUS_PALETTE[paletteIdx++ % BUS_PALETTE.length];
-      return { ...r, index: i, umnRoute, color: color || '#7A0019', badge: badgeColors(r, umnRoute), patterns: [] };
+      const color = OFFICIAL[r.id] || (umnRoute ? '#7A0019' : hashColor(r.id));
+      return { ...r, index: i, umnRoute, color, badge: { bg: color, fg: textOn(color) }, patterns: [] };
     });
-    // UMN circulators all share maroon officially; give them distinguishable shades on the map.
-    const umnShades = ['#7A0019', '#B5121B', '#C2410C', '#9D174D', '#5B21B6', '#A16207'];
-    this.routes.filter((r) => r.umnRoute).forEach((r, i) => { r.color = umnShades[i % umnShades.length]; });
 
     // ---- patterns
     this.patterns = net.patterns.map((p, i) => {
@@ -51,6 +62,15 @@ export class Network {
       this.routes[p.r].patterns.push(i);
       return pat;
     });
+    // Headsigns like "Campus Connector" name the route, not where it's going:
+    // fall back to the last stop so riders know which direction to take.
+    for (const pat of this.patterns) {
+      const r = this.routes[pat.route];
+      const h = (pat.headsign || '').trim();
+      const routeText = `${r.label} ${r.name} ${r.desc}`.toLowerCase();
+      const last = this.stopName[pat.stops[pat.stops.length - 1]];
+      pat.towards = !h || routeText.includes(h.toLowerCase()) ? last : h;
+    }
 
     // stop -> [pattern, position]
     const sp = Array.from({ length: this.nStops }, () => []);
@@ -243,12 +263,6 @@ export class Network {
     if (this.compiled.size > 4) this.compiled.delete(this.compiled.keys().next().value);
     return compiled;
   }
-}
-
-function badgeColors(r, umnRoute) {
-  const bg = r.color ? `#${r.color}` : umnRoute ? '#7A0019' : '#555555';
-  const fg = r.text ? `#${r.text}` : '#FFFFFF';
-  return { bg, fg };
 }
 
 /** Reverse a compiled timetable so the forward router can search backwards in time. */

@@ -43,6 +43,14 @@ export function routeSubtitle(route) {
   return route.name || route.desc || '';
 }
 
+/** "bus", "Campus Connector", "Green Line train"... as used in "Board the [3] bus". */
+function boardName(route) {
+  if (route.umnRoute) return routeTitle(route);
+  if (route.type === 0) return `${(route.name || route.label).replace(/^METRO /, '')} train`;
+  if (/^9\d\d$/.test(route.id)) return `${(route.name || route.label).replace(/^METRO /, '')} bus`;
+  return 'bus';
+}
+
 export function isRail(route) {
   return route.type === 0 || route.type === 1 || route.type === 2;
 }
@@ -124,9 +132,14 @@ export function itineraryDetails(net, it, ctx) {
       const toDest = l.to.kind === 'destination';
       const tiny = l.meters < 40;
       let text;
-      if (tiny) text = toDest ? 'Your destination is right by the stop.' : `Your stop is right here: ${stopLabel(net, l.to)}`;
+      const samePlace = l.from.kind === 'stop' && l.from.name === l.to.name;
+      if (tiny || (samePlace && l.meters < 120)) {
+        text = toDest ? 'Your destination is right by the stop.'
+          : samePlace ? `Stay at ${esc(l.to.name)} and go to the stop or platform for your next ride${l.to.kind === 'stop' ? ` (Stop #${esc(net.stopId[l.to.stop])})` : ''}.`
+            : `Your stop is right here: ${stopLabel(net, l.to)}`;
+      }
       else text = `Walk ${mins < 1 ? 'about 1 min' : `${mins} min`} (${formatDistance(l.meters)}) ${dir} to ${toDest ? 'your destination' : stopLabel(net, l.to)}`;
-      const dirBtn = tiny ? '' : `<button class="link walk-dir" data-leg="${idx}" type="button">Walking directions</button><div class="walk-steps" data-leg="${idx}" hidden></div>`;
+      const dirBtn = tiny || samePlace ? '' : `<button class="link walk-dir" data-leg="${idx}" type="button">Walking directions</button><div class="walk-steps" data-leg="${idx}" hidden></div>`;
       steps.push(step('walk', `${ICONS.walk}`, `${text}${dirBtn}`, 'walk'));
       const next = legs[idx + 1];
       if (next && next.type === 'ride') {
@@ -156,7 +169,7 @@ export function itineraryDetails(net, it, ctx) {
     const tip = !rail && prevStop ? `<div class="tip">Pull the cord (or press the stop button) after <b>${esc(prevStop)}</b> — your stop is next.</div>` : '';
     const railTip = rail ? `<div class="tip">Board on the platform for trains toward <b>${esc(l.headsign)}</b>.</div>` : '';
     steps.push(step('board', `<b>${formatClock(d, l.start)}</b>`,
-      `<div class="board-line">Board ${routeBadge(route)} <b>${esc(routeTitle(route))}</b> toward <b>${esc(l.headsign)}</b>${dir}</div>
+      `<div class="board-line">Board the ${routeBadge(route)} <b>${esc(boardName(route))}</b> toward <b>${esc(l.headsign)}</b>${dir}</div>
        <div class="at">at ${stopLabel(net, l.from)}</div>
        <div class="rt" data-trip="${esc(l.tripId)}">${liveLine(d, l)}</div>
        ${railTip}${alerts}

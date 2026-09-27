@@ -163,6 +163,12 @@ export function buildItinerary(ctx, rawLegs) {
   let egressStop = rawLegs.egressStop;
   while (legsIn.length && legsIn[legsIn.length - 1].type === 'walk') egressStop = legsIn.pop().from;
   while (legsIn.length && legsIn[0].type === 'walk') legsIn.shift();
+  // Collapse walk chains (stop -> stop -> stop) into one walk.
+  for (let i = legsIn.length - 1; i > 0; i--) {
+    if (legsIn[i].type === 'walk' && legsIn[i - 1].type === 'walk') {
+      legsIn.splice(i - 1, 2, { type: 'walk', from: legsIn[i - 1].from, to: legsIn[i].to });
+    }
+  }
 
   const legs = [];
   const firstRide = legsIn[0];
@@ -206,7 +212,7 @@ export function buildItinerary(ctx, rawLegs) {
     legs.push({
       type: 'ride', route: pat.route, routeLabel: route.label, pattern: l.pattern, trip: l.trip,
       tripId: cp.ids[l.trip], serviceDate: tripServiceDate(ct, cp, l.trip),
-      headsign: pat.headsign, dirText: pat.dirText,
+      headsign: pat.towards, dirText: pat.dirText,
       from: stopPoint(net, pat.stops[l.board]), to: stopPoint(net, pat.stops[l.alight]),
       board: l.board, alight: l.alight, start: dep, end: arr,
       schedStart: sched.dep[row + l.board], schedEnd: sched.arr[row + l.alight],

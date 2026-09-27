@@ -141,9 +141,10 @@ function setTiles(style) {
 
 function fitVisible(bounds, maxZoom = 17) {
   if (!bounds || !bounds.isValid()) return;
+  // use the sheet's target height: it may still be animating
   const opts = isDesktop()
     ? { paddingTopLeft: [450, 80], paddingBottomRight: [40, 40] }
-    : { paddingTopLeft: [24, 70], paddingBottomRight: [24, sheetHeight() + 16] };
+    : { paddingTopLeft: [24, 70], paddingBottomRight: [24, sheetPx(sheetState) + 16] };
   map.fitBounds(bounds, { ...opts, maxZoom });
 }
 
@@ -813,11 +814,13 @@ async function refreshVehicles() {
 
 function openStop(s) {
   const net = state.net;
-  const popup = L.popup({ maxWidth: 320, minWidth: 250, autoPanPaddingBottomRight: [20, sheetHeight() + 20], autoPanPaddingTopLeft: [20, 70] })
-    .setLatLng([net.stopLat[s], net.stopLon[s]])
-    .setContent(R.stopInfo(net, s, state.alerts))
-    .openOn(map);
-  const el = popup.getElement();
+  if (!isDesktop() && sheetState !== 'peek') setSheet('peek');
+  const popup = L.popup({ maxWidth: 320, minWidth: 250, autoPanPaddingBottomRight: [20, (isDesktop() ? 0 : sheetPx('peek')) + 20], autoPanPaddingTopLeft: [isDesktop() ? 440 : 20, 70] })
+    .setLatLng([net.stopLat[s], net.stopLon[s]]);
+  // a DOM node (not a string) so popup.update() keeps the departures we add later
+  const el = document.createElement('div');
+  el.innerHTML = R.stopInfo(net, s, state.alerts);
+  popup.setContent(el).openOn(map);
   el.querySelector('.si-actions').addEventListener('click', (e) => {
     const act = e.target.closest('[data-act]')?.dataset.act;
     if (!act) return;
@@ -857,7 +860,7 @@ function scheduledDepartures(s) {
       const t = cp.dep[j * cp.n + pos];
       if (t >= now.secs - 60 && t < now.secs + 3 * 3600) {
         const pat = net.patterns[p];
-        out.push({ t, route: net.routes[pat.route], headsign: pat.headsign });
+        out.push({ t, route: net.routes[pat.route], headsign: pat.towards });
       }
     }
   }
@@ -974,6 +977,7 @@ function focusRoute(index) {
   const net = state.net;
   const r = net.routes[index];
   closeDrawers();
+  map.closePopup();
   state.focusRoute = index;
   if (settings.hiddenRoutes.includes(r.id) || !routeVisible(r)) {
     settings.hiddenRoutes = settings.hiddenRoutes.filter((x) => x !== r.id);
@@ -991,6 +995,7 @@ function focusRoute(index) {
       .on('click', (e) => { L.DomEvent.stop(e); openStop(s); })
       .addTo(focusLayer);
   }
+  if (!isDesktop()) setSheet('peek');
   fitVisible(bounds, 15);
   const alerts = (state.alerts?.byRoute.get(r.id) || []).map((a) => `<div class="alert">${R.ICONS.alert}<span>${esc(a.header)}</span></div>`).join('');
   const heads = [...new Set(r.patterns.map((p) => net.patterns[p].headsign).filter(Boolean))].slice(0, 6);
@@ -1011,7 +1016,6 @@ function focusRoute(index) {
     box.remove();
     drawRoutes();
   });
-  if (!isDesktop()) setSheet('peek');
 }
 
 function renderSavedList() {
@@ -1041,11 +1045,6 @@ function renderAbout() {
 // ------------------------------------------------------------- the sheet
 
 let sheetState = 'half';
-
-function sheetHeight() {
-  if (isDesktop()) return 0;
-  return $('#sheet').getBoundingClientRect().height;
-}
 
 function sheetPx(s) {
   const formH = $('#trip-form').getBoundingClientRect().height;
@@ -1162,4 +1161,4 @@ function readHash() {
 boot();
 
 // expose for debugging in the console
-window.gopher = { state, plan, haversine, get map() { return map; } };
+window.gopher = { state, plan, haversine, openStop, get map() { return map; } };

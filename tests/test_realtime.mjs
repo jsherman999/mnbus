@@ -6,6 +6,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { decodeFeed, applyTripUpdates, indexAlerts, URLS, getNexTrip } from '../js/realtime.js';
 import { Network } from '../js/network.js';
+import { Planner } from '../js/planner.js';
 import { nowChicago, formatClock } from '../js/util.js';
 
 // ---- minimal protobuf writer (test only)
@@ -85,6 +86,15 @@ if (mode === 'live') {
         shown++;
       }
       if (feed.tripUpdates.length > 50) assert.ok(rt.rtStats.applied > feed.tripUpdates.length * 0.3, 'most live trips should match the static feed');
+      // plan a "leave now" trip on the live timetable
+      const planner = new Planner(net);
+      const res = planner.plan({
+        from: { lat: 44.9728, lon: -93.2353, name: 'Coffman Union' }, to: { lat: 44.9817, lon: -93.2776, name: 'Target Field' },
+        date: now.date, secs: now.secs, mode: 'depart', timetable: rt,
+      });
+      console.log(`  live plan Coffman -> Target Field: ${res.itineraries.length} options; first ` +
+        (res.itineraries[0] ? `${formatClock(now.date, res.itineraries[0].depart)} -> ${formatClock(now.date, res.itineraries[0].arrive)} ` +
+          `via ${res.itineraries[0].legs.filter((l) => l.type === 'ride').map((l) => `${l.routeLabel}${l.realtime ? ' (live)' : ''}`).join(', ')}` : 'none'));
     }
     if (kind === 'vehicles' && feed.vehicles.length) {
       const v = feed.vehicles[0];
