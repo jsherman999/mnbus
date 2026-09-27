@@ -1,0 +1,81 @@
+name: Data diagnostics (temporary)
+
+on:
+  push:
+    paths: ['.github/workflows/diag.yml']
+  workflow_dispatch:
+
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download GTFS
+        run: |
+          curl -sSIL https://svc.metrotransit.org/mtgtfs/gtfs.zip | head -30
+          curl -sSL -o gtfs.zip https://svc.metrotransit.org/mtgtfs/gtfs.zip
+          ls -la gtfs.zip
+          mkdir g && cd g && unzip -q ../gtfs.zip && ls -la && wc -l *.txt
+      - name: Inspect files
+        run: |
+          cd g
+          for f in *.txt; do echo "=== $f"; head -4 "$f"; done
+          echo "=== agency"; cat agency.txt
+          echo "=== feed_info"; cat feed_info.txt || true
+          echo "=== routes"; cat routes.txt
+          echo "=== calendar"; cat calendar.txt || true
+          echo "=== calendar_dates (head)"; head -40 calendar_dates.txt || true
+      - name: Region stats
+        run: |
+          cd g
+          python3 - <<'PY'
+          import csv, collections
+          stops = {r['stop_id']: r for r in csv.DictReader(open('stops.txt', encoding='utf-8-sig'))}
+          def inb(s, b):
+              la, lo = float(s['stop_lat']), float(s['stop_lon'])
+              return b[0] <= la <= b[2] and b[1] <= lo <= b[3]
+          boxes = {'core': (44.935, -93.32, 45.015, -93.07), 'wide': (44.85, -93.36, 45.05, -93.05)}
+          for name, b in boxes.items():
+              ins = {k for k, s in stops.items() if inb(s, b)}
+              print(name, 'stops in box', len(ins), 'of', len(stops))
+          core = {k for k, s in stops.items() if inb(s, boxes['core'])}
+          trips = {r['trip_id']: r for r in csv.DictReader(open('trips.txt', encoding='utf-8-sig'))}
+          print('trips', len(trips))
+          print('sample trip ids', list(trips)[:5])
+          print('sample trip rows', list(trips.values())[:3])
+          n = 0; nin = 0; tin = set(); secs = collections.Counter()
+          arrdep_diff = 0
+          for r in csv.DictReader(open('stop_times.txt', encoding='utf-8-sig')):
+              n += 1
+              if r['stop_id'] in core:
+                  nin += 1; tin.add(r['trip_id'])
+              if r['arrival_time'] != r['departure_time']: arrdep_diff += 1
+              secs[r['departure_time'][-2:]] += 1
+          print('stop_times', n, 'in core', nin, 'trips touching core', len(tin), 'arr!=dep', arrdep_diff)
+          print('seconds field distribution', secs.most_common(5))
+          svc = collections.Counter(trips[t]['service_id'] for t in tin)
+          print('services', len(svc), svc.most_common(30))
+          rts = collections.Counter(trips[t]['route_id'] for t in tin)
+          print('routes touching core', len(rts), sorted(rts))
+          for k, s in stops.items():
+              nm = s['stop_name'].lower()
+              if 'east bank' in nm or 'coffman' in nm or 'stadium village' in nm or 'west bank' in nm:
+                  print('STOP', s)
+          PY
+      - name: CORS / realtime checks
+        run: |
+          O="Origin: https://jsherman999.github.io"
+          for u in https://svc.metrotransit.org/nextrip/routes https://svc.metrotransit.org/nextrip/56001 https://svc.metrotransit.org/nextrip/vehicles/902 https://svc.metrotransit.org/mtgtfs/tripupdates.pb https://svc.metrotransit.org/mtgtfs/vehiclepositions.pb https://svc.metrotransit.org/mtgtfs/alerts.pb; do
+            echo "===== $u"; curl -sS -D - -o body.bin -H "$O" "$u" | head -25; head -c 1500 body.bin; echo
+          done
+          echo "===== preflight"; curl -sS -X OPTIONS -D - -o /dev/null -H "$O" -H "Access-Control-Request-Method: GET" https://svc.metrotransit.org/nextrip/56001 | head -20
+          echo "===== nominatim"; curl -sS -D - -o body.bin -A "mnbus-ci-diagnostics" -H "$O" "https://nominatim.openstreetmap.org/search?format=jsonv2&q=Coffman%20Memorial%20Union&limit=1" | grep -i -E "access-control|HTTP/"; head -c 600 body.bin; echo
+          echo "===== routing.openstreetmap.de foot"; curl -sS -D - -o body.bin -H "$O" "https://routing.openstreetmap.de/routed-foot/route/v1/foot/-93.2351,44.9730;-93.2310,44.9738?overview=false" | grep -i -E "access-control|HTTP/"; head -c 400 body.bin; echo
+          echo "===== carto tiles"; curl -sS -o /dev/null -w "%{http_code}\n" https://a.basemaps.cartocdn.com/rastertiles/voyager/14/3945/5889.png
+      - name: Overpass named buildings
+        run: |
+          Q='[out:json][timeout:60];(way["building"]["name"](44.965,-93.25,44.99,-93.215);way["building"]["name"](44.978,-93.195,44.995,-93.175););out center tags;'
+          curl -sS -A "mnbus-ci-diagnostics" --data-urlencode "data=$Q" https://overpass-api.de/api/interpreter -o ov.json; ls -la ov.json
+          python3 -c "
+          import json; d=json.load(open('ov.json')); el=d['elements']; print('buildings', len(el))
+          for e in el[:400]: print(e['tags'].get('name'), e.get('center'), e['tags'].get('building'), e['tags'].get('amenity',''))
+          "
