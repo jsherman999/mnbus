@@ -25,8 +25,11 @@ import os
 import sys
 import urllib.request
 import zipfile
+import time
 
 GTFS_URL = "https://svc.metrotransit.org/mtgtfs/gtfs.zip"
+MAX_RETRIES = 3
+RETRY_DELAY = 10  # seconds between retries
 
 # Areas used to flag routes that serve the University of Minnesota.
 # (south, west, north, east)
@@ -67,14 +70,29 @@ class Feed:
                 yield from csv.DictReader(f)
 
 
-def download(url, dest):
-    req = urllib.request.Request(url, headers={"User-Agent": "mnbus-data-builder (github.com/jsherman999/mnbus)"})
-    with urllib.request.urlopen(req, timeout=120) as resp, open(dest, "wb") as out:
-        while True:
-            chunk = resp.read(1 << 16)
-            if not chunk:
-                break
-            out.write(chunk)
+def download_with_retry(url, dest, max_retries=MAX_RETRIES, delay=RETRY_DELAY):
+    """Download with retry logic for robustness."""
+    last_exception = None
+    
+    for attempt in range(max_retries):
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "mnbus-data-builder (github.com/jsherman999/mnbus)"})
+            with urllib.request.urlopen(req, timeout=120) as resp, open(dest, "wb") as out:
+                while True:
+                    chunk = resp.read(1 << 16)
+                    if not chunk:
+                        break
+                    out.write(chunk)
+            return True
+        except Exception as e:
+            last_exception = e
+            if attempt < max_retries - 1:  # Don't sleep on the last attempt
+                print(f"Download attempt {attempt + 1} failed: {e}. Retrying in {delay} seconds...")
+                time.sleep(delay)
+            else:
+                print(f"Download failed after {max_retries} attempts: {e}")
+    
+    raise last_exception
 
 
 # ------------------------------------------------------------------------ helpers
@@ -542,7 +560,7 @@ def main():
     if args.download:
         path = path or "gtfs.zip"
         print(f"downloading {GTFS_URL} -> {path}")
-        download(GTFS_URL, path)
+        download_with_retry(GTFS_URL, path)
     if not path:
         ap.error("pass --gtfs PATH or --download")
     bbox = tuple(float(x) for x in args.bbox.split(",")) if args.bbox else None

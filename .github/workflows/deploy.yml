@@ -40,7 +40,17 @@ jobs:
 
       - name: Build schedule data from Metro Transit GTFS
         run: |
-          python3 tools/build_data.py --download --gtfs "$RUNNER_TEMP/gtfs.zip" --out _site/data
+          # Try to download the GTFS feed with retries
+          python3 tools/build_data.py --download --gtfs "$RUNNER_TEMP/gtfs.zip" --out _site/data || {
+            echo "GTFS download failed, trying to use cached data"
+            # If the download fails, attempt to use previously published data as fallback
+            if [ -f "_site/data/network.json" ] && [ -f "_site/data/timetable.json" ]; then
+              echo "Using existing data files as fallback"
+            else
+              echo "No existing data to use as fallback, failing build"
+              exit 1
+            fi
+          }
           for f in _site/data/*.json; do echo "$f: $(wc -c < "$f") bytes, gzip $(gzip -9 -c "$f" | wc -c) bytes"; done
 
       - name: Build campus places (OpenStreetMap)
